@@ -21,10 +21,11 @@ This project provides a robust pipeline for preprocessing and analyzing eye-trac
 ---
 
 ## Project Overview  
-This project consists of three main scripts:  
+This project consists of four main scripts:  
 1. **Processing.py**: Preprocesses raw eye-tracking data, performs windowing, trial rejection, normalization, and RR interval analysis.  
 2. **DatasetsConstruction.py**: Constructs datasets from preprocessed data for downstream analysis.  
 3. **EyetrackerAnalysis.py**: Provides a class with methods for eye-tracking data analysis, including R-peak detection, baseline correction, and trial rejection.  
+4. **MyEyetracker.py**: Processes raw ASC files, handles ECG synchronization, and concatenates datasets from multiple subjects.  
 
 ---
 
@@ -47,22 +48,24 @@ This project consists of three main scripts:
    - Provides a class for eye-tracking data analysis.  
    - Includes methods for data windowing, R-peak detection, normalization, and more.  
 
+4. **MyEyetracker.py**  
+   - Modifies ASC files to standardize event codes.  
+   - Processes raw eye-tracking data, including blink interpolation and event generation.  
+   - Handles ECG synchronization for combined eye-tracking and cardiac data.  
+   - Concatenates datasets from multiple subjects for aggregated analysis.  
+
 ---
 
 ## Installation  
 ### Prerequisites  
 - Python 3.7 or higher  
-- Required Python libraries: `numpy`, `pandas`, `plotly`, `wfdb`, `pickle`, `os`, `time`  
+- Required Python libraries: `numpy`, `pandas`, `plotly`, `wfdb`, `mne`, `pickle`  
 
 ### Setup  
 1. Clone the repository:  
-   ```bash
-   git clone https://github.com/yourusername/eye-tracking-analysis.git  
-   cd eye-tracking-analysis  
-   ```  
 2. Install dependencies:  
    ```bash
-   pip install numpy pandas plotly wfdb  
+   pip install -r requirements.txt  
    ```  
 3. Ensure your raw data is in the correct format (see [Input Data Requirements](#input-data-requirements)).  
 
@@ -99,6 +102,12 @@ e.make_windowed()
 # Perform trial rejection
 e.make_trial_rejection(thr_nan=1, thr_std=3, n_samp_rej=1, thr_rolling=30, rolling_tol=3)
 ```
+
+### (OPTIONAL) Processing Raw ASC Files  
+Run `MyEyetracker.py` to process raw ASC files and handle ECG synchronization:  
+```bash
+python MyEyetracker.py  
+```  
 
 ---
 
@@ -139,6 +148,16 @@ The raw data must be a Pandas DataFrame (saved as a pickle file) with the follow
      - `dt_across.pickle`: Dataset with averaged blocks.  
      - `dt_across_15.pickle`: Dataset filtered for at least 15 subjects per condition (averaged blocks).  
 
+3. **Processed ASC Data (`MyEyetracker.py`)**  
+   - Saved in pickle format with the following structure:  
+     ```python
+     {
+         "data": DataFrame,  # Processed eye-tracking data
+         "events": DataFrame,  # Event markers
+         "events_dict": dict  # Dictionary mapping event names to IDs
+     }
+     ```
+
 ---
 
 ## Dependencies  
@@ -146,6 +165,7 @@ The raw data must be a Pandas DataFrame (saved as a pickle file) with the follow
 - **Pandas**: For data manipulation and analysis.  
 - **Plotly**: For generating visualizations.  
 - **WFDB**: For R-peak detection in ECG data.  
+- **MNE**: For eye-tracking data processing.  
 - **Pickle**: For saving and loading data.  
 
 ---
