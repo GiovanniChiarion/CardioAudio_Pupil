@@ -140,7 +140,6 @@ The raw data must be a Pandas DataFrame (saved as a pickle file) with the follow
 ## Dependencies  
 - **NumPy**: For numerical computations.  
 - **Pandas**: For data manipulation and analysis.  
-- **Plotly**: For generating visualizations.  
 - **WFDB**: For R-peak detection in ECG data.  
 - **Pickle**: For saving and loading data.  
 
