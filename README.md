@@ -55,14 +55,10 @@ This project consists of three main scripts:
 - Required Python libraries: `numpy`, `pandas`, `plotly`, `wfdb`, `pickle`, `os`, `time`  
 
 ### Setup  
-1. Clone the repository:  
-   ```bash
-   git clone https://github.com/yourusername/eye-tracking-analysis.git  
-   cd eye-tracking-analysis  
-   ```  
+1. Clone the repository
 2. Install dependencies:  
    ```bash
-   pip install numpy pandas plotly wfdb  
+   pip install -r requirements.txt  
    ```  
 3. Ensure your raw data is in the correct format (see [Input Data Requirements](#input-data-requirements)).  
 
