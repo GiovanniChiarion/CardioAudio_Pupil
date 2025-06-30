@@ -103,11 +103,8 @@ e.make_windowed()
 e.make_trial_rejection(thr_nan=1, thr_std=3, n_samp_rej=1, thr_rolling=30, rolling_tol=3)
 ```
 
-### (OPTIONAL) Processing Raw ASC Files  
-Run `MyEyetracker.py` to process raw ASC files and handle ECG synchronization:  
-```bash
-python MyEyetracker.py  
-```  
+### Processing Raw ASC Files  
+`MyEyetracker.py` contains the code to process raw ASC files and handle ECG synchronization:  
 
 ---
 
