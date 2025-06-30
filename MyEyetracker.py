@@ -26,55 +26,50 @@ import pandas as pd
 import mne
 import mat73
 import os
+
+# To read the date written in the .asc file, otherwise throws an error
 import locale
 
-# Set locale to handle date formats in ASC files
 locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
 
 class MyEyetracker:
-    """
-    A class for processing and analyzing eye-tracking data.
-
-    This class provides methods for modifying ASC files, processing raw data,
-    handling ECG synchronization, and concatenating datasets.
-
-    Attributes:
-        general_dirpath (str): Path to the directory containing subject data.
-        subj_name (str or list): Subject name(s) to process. Can be "all" to process all subjects.
-        interpolate_blinks (bool): Whether to interpolate blinks. Defaults to True.
-        blink_max_duration_sec (float): Maximum duration of blinks to interpolate. Defaults to 0.3.
-        fullpath_raw (list): List of paths to raw data files.
-        path (list): List of paths to subject directories.
-    """
 
     def __init__(self, path, subj_name="all"):
-        """
-        Initialize the MyEyetracker object.
-
-        Args:
-            path (str): Path to the directory containing subject data.
-            subj_name (str or list): Subject name(s) to process. Can be "all" to process all subjects.
-        """
         self.general_dirpath = path
-        self.subj_name = subj_name  # Can be a string, list of strings, or "all"
+        self.subj_name = subj_name  # string of subj_folder or list of strings or "all", if "all" overwrited to a list of strings by self._set_fullpath()
+        # -- PARAMETERS --
+
         self.interpolate_blinks = True
         self.blink_max_duration_sec = 0.3
+
+        # ----------------
+
         self.fullpath_raw = self._set_fullpath()
         self.path = [
             os.path.join(self.general_dirpath, f"{subj_name}")
             for subj_name in self.subj_name
         ]
 
+        # --------------------------------------------------------------
+        # -- Comment the following lines to perform concat operation --
+        # self.fullpath_new_asc = self._modify_asc()
+        # --------------------------------------------------------------
+
     def _modify_asc(self, write_file=True):
         """
-        Modify ASC files by replacing specific codes with their corresponding values.
+        Modifies the contents of an ASC file by replacing specific codes with their corresponding values.
 
         Args:
-            write_file (bool): Whether to write the modified contents to a new file. Defaults to True.
+            write_file (bool, optional): Whether to write the modified contents to a new file. Defaults to True.
 
         Returns:
-            list: List of paths to the modified ASC files.
+            None
+
+        Examples:
+            >>> _modify_asc(write_file=True)
+            Conversion done!
+            'Modified file contents'
         """
         codes = {
             16: "ST",  # Sound Trigger 16
@@ -89,7 +84,17 @@ class MyEyetracker:
             208: "B2",  # Baseline Phase Stop
         }
         self.codes_numstr = codes
-        self.codes_strnum = {v: k for k, v in codes.items()}
+        self.codes_strnum = {
+            "ST": 16,  # Sound Trigger 16 or 32
+            "SY1": 96,  # Synchronized Phase Start
+            "SY2": 112,  # Synchronized Phase Stop
+            "A1": 160,  # Asynchronized Phase Start
+            "A2": 176,  # Asynchronized Phase Stop
+            "I1": 128,  # Isochronous Phase Start
+            "I2": 144,  # Isochronous Phase Stop
+            "B1": 192,  # Baseline Phase Start
+            "B2": 208,  # Baseline Phase Stop
+        }
 
         pattern = r"(MSG.*?){}(\n)"
         fullpath_new_asc = []
@@ -98,7 +103,8 @@ class MyEyetracker:
 
         for i, path in enumerate(self.fullpath_raw):
             if path in not_modified_paths:
-                name = glob.glob(f"{path}/*[!new].asc")[0]
+                name = glob.glob(f"{path}/*[!new].asc")
+                name = name[0]
                 fullpath_new_asc.append(f"{name[:-4]}_new.asc")
                 with open(name, "r") as f:
                     file = f.read()
@@ -110,20 +116,27 @@ class MyEyetracker:
                         f.write(file)
                 print(f"Conversion of subject {self.subj_name[i]} done!")
             else:
-                name = glob.glob(f"{path}/*new.asc")[0]
-                fullpath_new_asc.append(name)
+                name = glob.glob(f"{path}/*new.asc")
+                fullpath_new_asc.append(
+                    name[0]
+                )  # Added 0 because it was a list 24/04/2024
         return fullpath_new_asc
 
-    def data_process(self, remove=None, write_file=False):
+    def data_process_withECG(self, remove=None, write_file=False):
         """
-        Process eye-tracking data from ASC files.
+        Processes the data from an ASC file by performing various operations such as removing channels, renaming annotations,
+        removing specific annotations, checking calibration, interpolating blinks, generating events, and saving dataframes.
 
         Args:
-            remove (list): List of annotations to remove. Defaults to ["NA", "errors"].
-            write_file (bool): Whether to write the processed data to files. Defaults to False.
+            remove (list, optional): List of annotations to remove. Defaults to None.
+            write_file (bool, optional): Whether to write the processed data to files. Defaults to False.
 
         Returns:
-            pd.DataFrame: Processed data.
+            pd.DataFrame: The processed data.
+
+        Examples:
+            >>> data_process(remove=["NA"], write_file=True)
+            'Processed data dataframe'
         """
         if remove is None:
             remove = ["NA", "errors"]
@@ -133,20 +146,20 @@ class MyEyetracker:
             raw_data = mne.io.read_raw_eyelink(path_name_new_asc, preload=True)
             self.fs = raw_data.info["sfreq"]
 
-            # Remove DIN channel if present
+            # Removing DIN channel
             try:
                 raw_data = raw_data.drop_channels("DIN")
             except:
                 print("Channel(s) DIN not found, nothing dropped.")
 
-            # Rename annotations
+            # CHANGE ANNOTATION NAMES
             annotations = raw_data.annotations
             if "saccade" in list(annotations.count()):
                 annotations.rename({"fixation": "F", "saccade": "S"})
             if "" in list(annotations.count()):
                 annotations.rename({"": "NA"})
 
-            # Remove specified annotations
+            # REMOVE SOME ANNOTATIONS
             if "errors" in remove:
                 remove_ids = [
                     i
@@ -166,103 +179,245 @@ class MyEyetracker:
                 ]
                 annotations.delete(remove_ids)
 
-            # Interpolate blinks if enabled
+            # Finding BAD BLINK annotations with duration above blink_max_duration not interpolatable
+            missing_indices = [
+                i
+                for i, el in enumerate(annotations)
+                # Check duration
+                if (
+                    el["description"] == "BAD_blink"
+                    and el["duration"] > self.blink_max_duration_sec
+                )
+            ]
+
+            # Deleting annotations
+            annotations.delete(missing_indices)
+            # Setting new annotations
+            raw_data.set_annotations(annotations)
+
             if self.interpolate_blinks:
+                # Interpolating BAD BLINKS converting annotations in "blink"
                 raw_data = mne.preprocessing.eyetracking.interpolate_blinks(
                     raw_data, buffer=(0.05, 0.2)
                 )
             else:
+                # Changing real blinks BAD_blink annotations in "blink"
                 annotations.rename({"BAD_blink": "blink"})
+                # Setting new annotations
                 raw_data.set_annotations(annotations)
+            raw_eye = raw_data
 
-            # Generate events and save dataframes
-            events, events_dict = mne.events_from_annotations(
-                raw_data, regexp="^(?![Bb][Aa][Dd]|[Ee][Dd][Gg][Ee]).*$"
+            # Loading ECG dataset
+            raw_ecg = self.load_ecg(path, fs=1024)
+
+            # Cropping datasets into Conditions
+            crop_eye, ann_crop_eye, crop_ecg, ann_crop_ecg = (
+                self.cropping_datasets(raw_eye, raw_ecg)
             )
-            raw_data = raw_data.to_data_frame()
+
+            # Aligning datasets
+            aligned = self.align_eye_ecg(
+                crop_eye, ann_crop_eye, crop_ecg, ann_crop_ecg
+            )
+
+            data_df = self.concatenate_conditions(aligned, ann_crop_eye)
+
+            # Works for only monocular acquisitions!
             pupil_col_name = [
-                el for el in raw_data.columns if el.startswith("pupil")
+                el for el in data_df.columns if el.startswith("pupil")
             ][0]
-            raw_data[pupil_col_name] = raw_data[pupil_col_name].mask(
-                raw_data[pupil_col_name] == 0
+            
+            # Replace 0 values with NaN
+            data_df[pupil_col_name] = data_df[pupil_col_name].mask(
+                data_df[pupil_col_name] == 0
             )
 
-            if write_file:
-                pd.DataFrame(events).to_csv(f"{path}/events.csv", header=False)
-                pd.DataFrame(events_dict, index=[0]).to_csv(
-                    f"{path}/events_dict.csv", index=False
-                )
-                raw_data.to_csv(f"{path}/raw.csv")
-
-            # Process ST events
-            ST = mne.pick_events(events, include=[events_dict["ST"]])
-            ST = [[el[0], "ST"] for el in ST]
-            ST = np.array(ST).reshape((-1, 2))
-            ST = pd.DataFrame(ST, columns=("Sample", "event_code"))
-            offset = 4.88 * 1e-3  # seconds
-            ST["Sample"] += int(np.round(offset * self.fs))
-
-            # Process fixation, saccade, and blink events
-            FSBlink = mne.pick_events(
-                events,
-                include=[
-                    events_dict["F"],
-                    events_dict["S"],
-                    events_dict["blink"],
-                ],
-            )
-            reversed_dict = {v: k for k, v in events_dict.items()}
-            FSBlink = [[el[0], reversed_dict[el[2]]] for el in FSBlink]
-            FSBlink = np.array(FSBlink).reshape((-1, 2))
-            FSBlink = pd.DataFrame(FSBlink, columns=("Sample", "event_code"))
-
-            # Divide data into conditions
-            cond_couples = {
-                "SY": ("SY1", "SY2"),
-                "A": ("A1", "A2"),
-                "B": ("B1", "B2"),
-                "I": ("I1", "I2"),
-            }
-            B1B2_merged = self._divide_conditions(
-                raw_data, cond_couples["B"], events, events_dict, FSBlink, ST
-            )
-            SY1SY2_merged = self._divide_conditions(
-                raw_data, cond_couples["SY"], events, events_dict, FSBlink, ST
-            )
-            A1A2_merged = self._divide_conditions(
-                raw_data, cond_couples["A"], events, events_dict, FSBlink, ST
-            )
-            I1I2_merged = self._divide_conditions(
-                raw_data, cond_couples["I"], events, events_dict, FSBlink, ST
-            )
-
-            # Concatenate all conditions
-            data_df = pd.concat(
-                [B1B2_merged, SY1SY2_merged, A1A2_merged, I1I2_merged],
-                keys=("Baseline", "Sync", "Async", "Iso"),
-                names=("Condition", "Sample"),
-            )
-            data_df = data_df.reset_index()
-
-            # Convert to efficient data types
+            # CONVERTING TO BETTER DTYPES TO INCREASE PERFORMANCES
             data_df.event_code = data_df.event_code.astype("category")
             data_df.event_block = data_df.event_block.astype("category")
             data_df.Condition = data_df.Condition.astype("category")
-            data_df.Sample = data_df.Sample.astype("int32")
 
-            # Save processed data
             data_df.to_pickle(f"{path}/data.pickle")
-            pd.DataFrame(events_dict, index=[0]).to_csv(
-                f"{path}/events_dict.csv", index=False
+
+            #  -- Testing that the dataframe have the same content. -- 
+            # import plotly.express as px
+            # # Load your DataFrame
+            # a = pd.read_pickle(f"{path}/data.pickle")
+            # # a=data_df
+            # # Filter your DataFrame
+            # b = a.query("Condition=='Sync' & event_block==0")
+
+            # # Create the initial line plot for 'pupil_right'
+            # fig = px.line(b, x='rel_time', y='pupil_right', labels={'y': 'pupil_right'}, title="Pupil and ECG over Time")
+
+            # # Add the second line plot for 'ECG'
+            # fig.add_scatter(x=b['rel_time'], y=b['ECG'], mode='lines', name='ECG')
+
+            # # Add multiple vertical lines
+            # for x_value in b.query("event_code=='ST'")["rel_time"].values:
+            #     fig.add_vline(x=x_value, line_width=1, line_dash="solid", line_color="red")
+
+            # # Show the plot
+            # fig.show(renderer='firefox')
+
+            # data_df.to_hdf(f"{path}/data.hdf",format="table",key="data",complevel=9)
+
+    def load_ecg(self, path, fs):
+        selection_mask_string = list(set(self.codes_numstr.values()))
+        selection_mask_codes = [
+            self.codes_strnum[el]
+            for el in self.codes_strnum
+            if el in selection_mask_string
+        ]
+        mat = mat73.loadmat(os.path.join(path, "raw_data.mat"))
+
+        # Extract rows 65 e 69
+        ecg_signal = mat["y"][
+            64, :
+        ]  # Remembering that the index is 64 pfor the row 65 (matlab)
+        triggers_ecg = mat["y"][
+            68, :
+        ]  # Remembering that the index is 68 for the row 69
+
+        # All 32 triggers must be converted in 16 because of dictionary inversion
+        triggers_ecg = [16 if el == 32 else el for el in triggers_ecg]
+
+        # Select only triggers in selection_mask
+        triggers_ecg = [
+            el if el in selection_mask_codes else 0 for el in triggers_ecg
+        ]
+
+        info = mne.create_info(["ECG", "STIM"], fs, ["ecg", "misc"])
+        raw_ecg = mne.io.RawArray(np.stack([ecg_signal, triggers_ecg]), info)
+        return raw_ecg
+
+    def cropping_datasets(self, raw_eye, raw_ecg):
+        ann_crop_eye = raw_eye.annotations.copy()
+        events_ecg = mne.find_events(raw_ecg, "STIM")
+        ann_crop_ecg = mne.annotations_from_events(
+            events_ecg, raw_ecg.info["sfreq"], self.codes_numstr
+        )
+
+        annotations_crop = {"eye": ann_crop_eye, "ecg": ann_crop_ecg}
+
+        conditions = [el for el in self.codes_numstr.values() if el != "ST"]
+
+        for i, ann_key in enumerate(annotations_crop):
+            ann = annotations_crop[ann_key]
+            print(f"Cropping dataset {ann_key}")
+            idx = [
+                i
+                for i, el in enumerate(ann)
+                if el["description"] not in conditions
+            ]
+            ann.delete(idx)
+
+            # Set proper duration in annotations
+            for j in range(0, len(ann), 2):
+                d1 = ann.description[j]
+                d2 = ann.description[j + 1]
+                # Checking that the two desctipion names coincides
+                assert (
+                    d1[:-1] == d2[:-1]
+                ), f"The first conditions seems not to be Baseline on {ann_key}: first is {d1}, second is {d2}"
+                # Checking that the first is a starting condition and the second an end
+                assert (
+                    d1[-1] == "1"
+                ), f"The first conditions seems not to be Baseline on {ann_key}: first is {d1}, second is {d2}"
+                assert (
+                    d2[-1] == "2"
+                ), f"The first conditions seems not to be Baseline on {ann_key}: first is {d1}, second is {d2}"
+                # Setting proper duration to the first annotation
+                ann.duration[j] = ann.onset[j + 1] - ann.onset[j]
+            # Deleting ending condition annotations
+            ann.delete(range(1, len(ann), 2))
+
+        # Cropping by annotations duration
+        crop_eye = raw_eye.copy().crop_by_annotations(annotations_crop["eye"])
+        crop_ecg = raw_ecg.copy().crop_by_annotations(annotations_crop["ecg"])
+        ann_crop_eye = annotations_crop["eye"]
+        ann_crop_ecg = annotations_crop["ecg"]
+
+        # check if first crop is Baseline
+        assert ann_crop_eye.description[0] == "B1"
+        assert ann_crop_ecg.description[0] == "B1"
+
+        # Check if the annotations both coincide
+        assert all(ann_crop_eye.description == ann_crop_ecg.description)
+
+        return crop_eye, ann_crop_eye, crop_ecg, ann_crop_ecg
+
+    def align_eye_ecg(self, crop_eye, ann_crop_eye, crop_ecg, ann_crop_ecg):
+        blocks = list(enumerate(ann_crop_eye.description))
+
+        for i in range(len(crop_eye)):
+            print(
+                f"Evaluating condition number {i+1}/{len(crop_eye)}\n\n : {blocks[i][1]}"
+            )
+            a = crop_eye[i]  # .copy()
+            b = crop_ecg[i]  # .copy()
+
+            start_time = max(a.times[0], b.times[0])
+            end_time = min(a.times[-1], b.times[-1])
+
+            a.crop(tmin=start_time, tmax=end_time)
+            b.crop(tmin=start_time, tmax=end_time)
+
+            b.resample(sfreq=a.info["sfreq"], stim_picks="STIM")
+
+            # If there is still a mismatch, you can crop the resampled data to match the number of samples
+            if a.n_times != b.n_times:
+                min_samples = min(a.n_times, b.n_times)
+                a = a.crop(tmax=(min_samples - 1) / a.info["sfreq"])
+                b = b.crop(tmax=(min_samples - 1) / b.info["sfreq"])
+
+            if blocks[i][1] != "B1":
+                events1, events1_dict = mne.events_from_annotations(
+                    a, event_id=self.codes_strnum
+                )
+
+            a.add_channels([b], force_update_info=True)
+
+        return crop_eye
+
+    def concatenate_conditions(self, aligned, ann_crop_eye):
+        # At the moment annotations are not taken in consideration.
+        # in the future, they need to be used for analysis of
+        # fixations, saccades and blinks
+        aligned_df = [el.to_data_frame() for el in aligned]
+        # Updating original time based on annotations
+        assert len(aligned_df) == len(ann_crop_eye)
+        for i in range(len(aligned_df)):
+            start_time = ann_crop_eye[i]["onset"]
+            aligned_df[i]["time"] = np.linspace(
+                start_time,
+                (len(aligned_df[i]) - 1) / self.fs + start_time,
+                len(aligned_df[i]),
             )
 
-    def _check_mod_asc(self):
-        """
-        Check which ASC files have not been modified.
+        blocks = list(ann_crop_eye.description)
+        conditions = list(set(blocks))
+        concatenated = []
+        mapping = {"A1": "Async", "B1": "Baseline", "SY1": "Sync", "I1": "Iso"}
+        for cond in conditions:
+            cond_dfs = [
+                aligned_df[i] for i, el in enumerate(blocks) if el == cond
+            ]
+            for i, c in enumerate(cond_dfs):
+                c["event_block"] = i
+                c["rel_time"] = np.arange(len(c)) / self.fs
+                c["STIM"] = c["STIM"].replace([0, 16], [-1, "ST"])
+                c["STIM"] = c["STIM"].apply(
+                    lambda x: -1 if isinstance(x, (int, float)) else x
+                )
+            agg = pd.concat(cond_dfs, ignore_index=True)
+            agg["Condition"] = mapping[cond]
+            concatenated.append(agg)
+        full_dataframe = pd.concat(concatenated, ignore_index=True)
+        full_dataframe.rename(columns={"STIM": "event_code"}, inplace=True)
+        return full_dataframe
 
-        Returns:
-            list: List of paths to unmodified ASC files.
-        """
+    def _check_mod_asc(self):
         not_modified_paths = []
         for path in self.fullpath_raw:
             name = glob.glob(f"{path}/*_new.asc")
@@ -271,21 +426,16 @@ class MyEyetracker:
         return not_modified_paths
 
     def _set_fullpath(self):
-        """
-        Set the full paths to the raw data files based on subject names.
-
-        Returns:
-            list: List of paths to raw data files.
-        """
         if isinstance(self.subj_name, int):
-            raise ValueError("Integer number as subj_name is not allowed")
+            raise ValueError("Integer number as subj_name are not allowed")
         elif isinstance(self.subj_name, list):
             for el in self.subj_name:
                 if isinstance(el, int):
                     raise ValueError(
-                        "Integer number as subj_name is not allowed"
+                        "Integer number as subj_name are not allowed"
                     )
             return [f"{self.general_dirpath}/{el}" for el in self.subj_name]
+
         elif self.subj_name == "all":
             self.subj_name = [
                 d
@@ -294,31 +444,20 @@ class MyEyetracker:
                 and d != "aggregated"
             ]
             return [f"{self.general_dirpath}/{el}" for el in self.subj_name]
+
         elif isinstance(self.subj_name, str):
             self.subj_name = [self.subj_name]
             return [f"{self.general_dirpath}/{self.subj_name[0]}"]
         else:
-            raise TypeError(
-                "subj_name should be the subject folder name, a list, or 'all'!"
+            raise (
+                TypeError,
+                "subj_name should be the subject folder name or a list or 'all'!",
             )
 
     def _divide_conditions(
         self, raw_data, cond_extremes, events, events_dict, FSBlink, ST
     ):
-        """
-        Divide data into conditions based on event markers.
-
-        Args:
-            raw_data (pd.DataFrame): Raw data to divide.
-            cond_extremes (tuple): Tuple of start and end markers for the condition.
-            events (np.array): Events array.
-            events_dict (dict): Dictionary mapping event names to IDs.
-            FSBlink (pd.DataFrame): DataFrame of fixation, saccade, and blink events.
-            ST (pd.DataFrame): DataFrame of sound trigger events.
-
-        Returns:
-            pd.DataFrame: Data divided into the specified condition.
-        """
+        # Selecting Baseline Phases
         ev = mne.pick_events(
             events,
             include=[
@@ -326,10 +465,13 @@ class MyEyetracker:
                 events_dict[cond_extremes[1]],
             ],
         )
+
+        # Reshaping
         ev = [el[0] for el in ev]
         ev = np.array(ev).reshape((-1, 2))
-        ev_df = pd.DataFrame(ev, columns=("Start", "Stop"))
+        ev_df = pd.DataFrame(ev, columns=(("Start"), ("Stop")))
 
+        # Dividing in epochs
         dfs = []
         for i in range(len(ev_df)):
             dfs.append(
@@ -341,7 +483,7 @@ class MyEyetracker:
 
         df_merged = pd.concat(dfs)
 
-        # Insert instantaneous events
+        # Inserting Instantaneous Events
         cnt = 0
         df_merged["event_code"] = -1
         df_merged["event_code"] = df_merged["event_code"].astype("object")
@@ -351,7 +493,7 @@ class MyEyetracker:
                 df_merged.loc[s, "event_code"] = ev["event_code"]
         print(f"Added {cnt} instantaneous events!")
 
-        # Insert sound trigger events
+        # Inserting Sound Trigger Events
         cnt = 0
         for i, ev in ST.iterrows():
             if (s := ev["Sample"]) in df_merged.index:
@@ -363,12 +505,6 @@ class MyEyetracker:
         return df_merged
 
     def concat_subject_dfs(self, out_folder_path):
-        """
-        Concatenate dataframes from multiple subjects.
-
-        Args:
-            out_folder_path (str): Path to save the concatenated dataframe.
-        """
         dir_paths, dir_names = zip(
             *[
                 [el.path, el.name]
@@ -386,7 +522,9 @@ class MyEyetracker:
             temp["subj_name"] = dir_names[i]
             d.append(temp)
         print("Concatenating all the subjects ...\n")
-        df = pd.concat(d, ignore_index=True)
+        df = pd.concat(
+            d, ignore_index=True
+        )  # ignore_index let us not having multiple index overlapping
         if not os.path.exists(out_folder_path):
             print(f"{out_folder_path} not found, creating it ...\n")
             os.mkdir(out_folder_path)
